@@ -7,7 +7,7 @@
 // По возможности пришлите Ваш вариант в https://codesandbox.io
 
 
-import React, { useState, useCallback,useEffect, useRef, useMemo } from "react";
+import React, { useState, useCallback,useEffect, useRef, useMemo, memo } from "react";
 
 const URL = "https://jsonplaceholder.typicode.com/users";
 
@@ -43,14 +43,15 @@ function Button({ onClick }: IButtonProps): JSX.Element {
 interface IUserInfoProps {
   user: User;}
 
-function UserInfo({ user }: IUserInfoProps): JSX.Element {
+// мемоизируем компонент для совместной работы c useCallback
+const UserInfo = memo (({ user }: IUserInfoProps): JSX.Element => {
   return (
+    <>
     <table>
       <thead>
         <tr>
           <th>Username</th>
           <th>Phone number</th>
-          <th>Phone id</th>
         </tr>
       </thead>
       <tbody>
@@ -60,72 +61,87 @@ function UserInfo({ user }: IUserInfoProps): JSX.Element {
         </tr>
       </tbody>
     </table>
+    </>
   );
-}
+  
+})
 
+// Создаем хук useThrottle, использовать его будем когда пользователь
+// в течение некоторого времени бесконечно нажимает на кнопку для отправки запроса на сервер
+// для этого value будет принимать функцию callback, а delay количество секунд, через которые 
+// будет выполняться useThrottle
 const useThrottle = (value: any, delay: number) => {
   const [throttleValue, setThrottleValue] = useState(value);
 
-  const lastExecuted = useRef(Date.now()); //момент последнего использования
+  const lastExecuted = useRef(Date.now()); 
   
   useEffect(() => {
-    const handler = setTimeout(() => {// устанавливаем та
-      const now = Date.now(); // получаем текущее момент времени
-      const timeElapsed = now -lastExecuted.current; // получаем сколько времени уже прошло
+    const handler = setTimeout(() => {
+      const now = Date.now(); 
+      const timeElapsed = now -lastExecuted.current; 
 
-      if (timeElapsed >= delay){ // если время которое прошло больше или равно заданному, 
-        setThrottleValue(value);//то установим новое состояние и укажем новое время момент последнего использования
+      if (timeElapsed >= delay){ 
+        setThrottleValue(value);
         lastExecuted.current = now;
       }
-    }, delay - (Date.now() - lastExecuted.current)); //вычислям время для таймера
+    }, delay - (Date.now() - lastExecuted.current)); 
 
     return () => {
-      clearTimeout(handler)//удаляем таймер
+      clearTimeout(handler)
     }
   }, [delay, value])
 }
 
 function App(): JSX.Element {
-  const InitialState = useMemo(() =>({ //данные по загрузке
-    loading: true, // пока нет данных показываем Loading...
+  // мемоизируем данные для состояния загрузки и ошибок
+  const InitialState = useMemo(() =>({
+    loading: true, 
     error: null
   }), [])
   const [item, setItem] = useState<User>(Object);
-  const [dataState, setDataState] = useState(InitialState); // создает стэйт для данных по загрузке
-  const [id, setId] = useState<number>(0)
-  const btn = document.getElementById('button')// получаем доступ к кнопке
+  const [dataState, setDataState] = useState(InitialState); 
+  const [id, setId] = useState<number | null>(null)
+  const btn = document.getElementById('button')
 
+  // создаем функцию для вычисления случайного id пользователя
+  // вызывать будем при клике на кнопку, как только получим уникальный номер,
+  // то функция receiveRandomUser() сделает запрос на сервер самостоятельно
   const getId  = (): void => {    
-    const newId: number = Math.floor(Math.random() * (10 - 1)) + 1 //создаем новый id     
-    const cache: number = id; //кладем id в кэш
-    if (newId !== cache){   // если новый id  отсутсвует в кэше
-      setId(prev => prev = newId) //  передаем новый id в id   
+    const newId: number = Math.floor(Math.random() * (10 - 1)) + 1;  
+    const cache: number | null = id; 
+    if (newId !== cache){   
+      setId(prev => prev = newId)   
      } else {
       setId(prev => prev = cache) 
-      //getId() // вызов рекурсии повляет на то, что при каждом запросе всегда будет не повторяющийся id
+      //getId() // вызов рекурсии повлияет на то, что при каждом запросе всегда будет уникальный id
      }
   }
-  
+  // для receiveRandomUser() исользуем хук useCallback, для того чтобы мемоизировать 
+  // результаты выполнения запросов на сервер
   const receiveRandomUser = useCallback((): void => {      
-    setDataState(InitialState)   // обновляем стейт
-      fetch(`${URL}/${id}`) // делаем запрос к сереверу
-        .then(res => res.json())     
-        .then(data => {
-          setItem(data); //сохраняем полученные данные
-          setDataState({
-          loading: false, // когда данные получены меняем состояние загрузки
-          error: null})}) //          
-        .catch(error => setDataState({ // если вылововели ошибку меняем состояние error
+    setDataState(InitialState);   
+    fetch(`${URL}/${id}`) 
+      .then(res => res.json())     
+      .then(data => {
+        setItem(data); 
+        setDataState({
+          loading: false, 
+          error: null})})          
+        .catch(error => setDataState({ 
           loading: false,
           error}))   
   }, [InitialState, id])
 
-const throttle = useThrottle(receiveRandomUser, 5000); //используем  хук useThrottle передаем функцию для получения данных с промежуком 5 секунд
+// создадим переменную throttle, в котору передадимм хук useThrottle
+// в качестве функции-колбэк receiveRandomUser(), количество секунд равное 5,
+// то есть через каждые 5 секунд будет вызываться функция для отпроавки запросов на сервер,
+// в случае, когда пользователь долго будет нажимать бесконечно кнопку пользователя 
+const throttle = useThrottle(receiveRandomUser, 5000); 
  
 useEffect(() => {
-  btn?.addEventListener('click', () => throttle) // вешаем слушатель на кнопку
+  btn?.addEventListener('click', () => throttle) 
   return () => {
-    btn?.removeEventListener('click', () => throttle) // удаляем слушатель
+    btn?.removeEventListener('click', () => throttle) 
   }
  }, [btn, id, throttle]);
 
@@ -134,16 +150,15 @@ useEffect(() => {
     event: React.MouseEvent<HTMLButtonElement, MouseEvent>
   ) => {
     event.stopPropagation();
-   getId(); // при нажатии на кнопку меняем состояние случайного пользователя, 
-            // при при получении нового id функция receiveRandomUser получит данны случайного пользователя 
+   getId(); 
   };
 
   return (
     <div>
       <header>Get a random user</header>
       <Button onClick={handleButtonClick} />
-      <p>{dataState.loading ? 'Loading...' : <UserInfo user={item} />}</p>
-      <p>{dataState.error ? 'Something is wrong': ''}</p>
+      <div>{dataState.loading ? 'Loading...' : <UserInfo user={item} />}</div>
+      <div>{dataState.error ? 'Something is wrong': ''}</div>
       
     </div>
   );
